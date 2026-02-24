@@ -18,7 +18,8 @@ async def get_weather(event):
         # Format 3 is a short one-liner, format 4 is slightly more detailed
         url = f"https://wttr.in/{city.replace(' ', '+')}?format=3"
         
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(url) as response:
                 if response.status == 200:
                     weather_data = await response.text()

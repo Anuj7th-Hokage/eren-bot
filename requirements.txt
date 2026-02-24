@@ -1,1 +1,4 @@
 telethon==1.33.1
+aiohttp
+wikipedia
+yt-dlp

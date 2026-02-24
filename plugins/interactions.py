@@ -7,7 +7,7 @@ from plugins.db_utils import save_gif, get_random_gif, get_all_authorized_users
 client = __main__.client
 
 # List of supported interaction types
-SUPPORTED_ACTIONS = ['kick', 'pat', 'kiss', 'slap', 'hug', 'bite', 'punch', 'lick', 'poke', 'cuddle', 'kill']
+SUPPORTED_ACTIONS = ['kick', 'pat', 'kiss', 'slap', 'hug', 'bite', 'punch', 'lick', 'poke', 'cuddle', 'kill', 'spank']
 
 def get_action_text(action, sender_name, target_name):
     # Just basic present/past tense mapping for the action string
@@ -22,7 +22,8 @@ def get_action_text(action, sender_name, target_name):
         'lick': f"**{sender_name}** licked **{target_name}**! 👅",
         'poke': f"**{sender_name}** poked **{target_name}**! 👉",
         'cuddle': f"**{sender_name}** cuddled with **{target_name}**! 🥰",
-        'kill': f"**{sender_name}** completely destroyed **{target_name}**! 💀"
+        'kill': f"**{sender_name}** completely destroyed **{target_name}**! 💀",
+        'spank': f"**{sender_name}** spanked **{target_name}**! ✋"
     }
     return templates.get(action.lower(), f"**{sender_name}** used {action} on **{target_name}**!")
 

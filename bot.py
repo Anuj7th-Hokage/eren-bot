@@ -34,6 +34,8 @@ if __name__ == "__main__":
         from plugins.spam import *
         from plugins.interactions import *
         from plugins.auth import *
+        from plugins.weather import *
+        from plugins.search import *
         
         client.start()
         logger.info("UserBot is online and ready. Awaiting commands.")

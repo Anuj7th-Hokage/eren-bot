@@ -71,6 +71,18 @@ async def _ask_ai(prompt: str) -> str:
             return reply
 
 
+async def _ask_ai_keyless(prompt: str) -> str:
+    # Keyless fallback using Pollinations AI
+    url = f"https://text.pollinations.ai/{prompt}"
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                text = await resp.text()
+                if text.strip():
+                    return text.strip()
+            raise RuntimeError(f"Pollinations API error status {resp.status}")
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^\.ai(?: |$)(.*)'))
 async def ai_chat(event):
     prompt = (event.pattern_match.group(1) or "").strip()
@@ -86,16 +98,15 @@ async def ai_chat(event):
         )
         return
 
-    if not GROQ_API_KEY:
-        await event.edit("❌ **GROQ_API_KEY missing.**")
-        return
-
     await event.edit("🤖 **Thinking...**")
 
     try:
-        answer = await _ask_ai(prompt)
+        if GROQ_API_KEY:
+            answer = await _ask_ai(prompt)
+        else:
+            answer = await _ask_ai_keyless(prompt)
+
         if len(answer) > 3900:
             answer = answer[:3900] + "…"
         await event.edit(f"🤖 **AI**\n\n{answer}")
-    except Exception as e:
-        await event.edit(f"❌ **AI error:** `{e}`")
+        await event.edit(f"❌ **AI Error:** `{e}`")

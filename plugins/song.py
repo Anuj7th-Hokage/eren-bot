@@ -27,8 +27,8 @@ async def easy_song_for_all(event):
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # ytsearch automatically picks the first youtube search result
-                ydl.download([f"ytsearch:{song_name}"])
+                # Use soundcloud search to bypass YouTube 403 Forbidden errors
+                ydl.download([f"scsearch:{song_name}"])
             
             # Find whatever file was downloaded
             downloaded_files = glob.glob("song.*")

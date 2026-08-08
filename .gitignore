@@ -1,3 +1,4 @@
+.DS_Store
 venv/
 venv39/
 __pycache__/
@@ -5,3 +6,10 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .idea/
+*.session
+*.session-journal
+*.db
+bot.log
+*.log
+
+

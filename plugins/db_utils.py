@@ -1,88 +1,74 @@
-import sqlite3
 import os
+import json
+import random
+from datetime import datetime
 
-DB_PATH = "users.db"
+# DB path in home directory
+DB_PATH = os.path.expanduser("~/.config/erenbot/users.json")
+
+# In-memory storage
+db = {
+    "users": {},            # user_id (str) -> list of dicts {first_name, last_name, username, timestamp}
+    "gifs": {},             # type -> list of file_ids
+    "authorized_users": [], # list of user_ids (int)
+    "tracked_users": [],    # list of dicts {user_id, chat_id}
+    "vv_cache": {},         # "chat_id:msg_id" -> saved message id in Saved Messages
+}
+
+def load_db():
+    global db
+    if os.path.exists(DB_PATH):
+        try:
+            with open(DB_PATH, 'r') as f:
+                loaded = json.load(f)
+                db.update(loaded)
+        except Exception:
+            pass
+    else:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        save_db()
+
+def save_db():
+    global db
+    try:
+        with open(DB_PATH, 'w') as f:
+            json.dump(db, f, indent=4)
+    except Exception:
+        pass
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER,
-            first_name TEXT,
-            last_name TEXT,
-            username TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS gifs (
-            type TEXT,
-            file_id TEXT,
-            UNIQUE(type, file_id)
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS authorized_users (
-            user_id INTEGER PRIMARY KEY
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    load_db()
 
 def save_user(user_id, first_name, last_name, username):
-    """
-    Saves a user record if their details have changed since the last known entry.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    uid_str = str(user_id)
+    if uid_str not in db["users"]:
+        db["users"][uid_str] = []
     
-    # Check if the most recent entry for this user is exactly the same
-    c.execute('''
-        SELECT first_name, last_name, username 
-        FROM users 
-        WHERE user_id = ? 
-        ORDER BY timestamp DESC LIMIT 1
-    ''', (user_id,))
-    
-    row = c.fetchone()
-    if row:
-        db_first, db_last, db_user = row
-        # If nothing changed, do not save a duplicate row
-        if db_first == first_name and db_last == last_name and db_user == username:
-            conn.close()
-            return
+    history = db["users"][uid_str]
+    if history:
+        last_entry = history[-1]
+        if last_entry.get("first_name") == first_name and \
+           last_entry.get("last_name") == last_name and \
+           last_entry.get("username") == username:
+            return # Nothing changed
             
-    # Insert new or updated record
-    c.execute('''
-        INSERT INTO users (user_id, first_name, last_name, username)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, first_name, last_name, username))
-    
-    conn.commit()
-    conn.close()
+    history.append({
+        "first_name": first_name,
+        "last_name": last_name,
+        "username": username,
+        "timestamp": datetime.now().isoformat()
+    })
+    save_db()
 
 def get_user_history(user_id):
-    """
-    Returns a list of unique past names/usernames for a user (oldest to newest).
-    """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        SELECT DISTINCT first_name, last_name, username 
-        FROM users 
-        WHERE user_id = ? 
-        ORDER BY timestamp ASC
-    ''', (user_id,))
-    
-    rows = c.fetchall()
-    conn.close()
+    uid_str = str(user_id)
+    history_list = db["users"].get(uid_str, [])
     
     history_str = []
-    for r in rows:
-        fn = r[0] if r[0] else ""
-        ln = f" {r[1]}" if r[1] else ""
-        un = f" (@{r[2]})" if r[2] else ""
+    for r in history_list:
+        fn = r.get("first_name") or ""
+        ln = f" {r.get('last_name')}" if r.get('last_name') else ""
+        un = f" (@{r.get('username')})" if r.get('username') else ""
         
         full_name = f"{fn}{ln}{un}".strip()
         if full_name and full_name not in history_str:
@@ -91,67 +77,64 @@ def get_user_history(user_id):
     return history_str
 
 def save_gif(gif_type, file_id):
-    """
-    Saves a GIF file_id into the database under a specific category.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute('''
-            INSERT INTO gifs (type, file_id)
-            VALUES (?, ?)
-        ''', (gif_type.lower(), file_id))
-        conn.commit()
-        success = True
-    except sqlite3.IntegrityError:
-        # Avoid duplicate GIFs in the same category
-        success = False
-    finally:
-        conn.close()
-    return success
+    gtype = gif_type.lower()
+    if gtype not in db["gifs"]:
+        db["gifs"][gtype] = []
+        
+    if file_id not in db["gifs"][gtype]:
+        db["gifs"][gtype].append(file_id)
+        save_db()
+        return True
+    return False
 
 def get_random_gif(gif_type):
-    """
-    Returns a random file_id of a GIF for the given category, if any exist.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        SELECT file_id FROM gifs 
-        WHERE type = ? 
-        ORDER BY RANDOM() LIMIT 1
-    ''', (gif_type.lower(),))
-    
-    row = c.fetchone()
-    conn.close()
-    
-    return row[0] if row else None
+    gtype = gif_type.lower()
+    gifs = db["gifs"].get(gtype, [])
+    if gifs:
+        return random.choice(gifs)
+    return None
 
 def add_authorized_user(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO authorized_users (user_id) VALUES (?)', (user_id,))
-        conn.commit()
+    if user_id not in db["authorized_users"]:
+        db["authorized_users"].append(user_id)
+        save_db()
         return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
+    return False
 
 def remove_authorized_user(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('DELETE FROM authorized_users WHERE user_id = ?', (user_id,))
-    changes = conn.total_changes
-    conn.commit()
-    conn.close()
-    return changes > 0
+    if user_id in db["authorized_users"]:
+        db["authorized_users"].remove(user_id)
+        save_db()
+        return True
+    return False
 
 def get_all_authorized_users():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT user_id FROM authorized_users')
-    rows = c.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+    return db["authorized_users"]
+
+def add_tracked_user(user_id, chat_id):
+    for t in db["tracked_users"]:
+        if t["user_id"] == user_id and t["chat_id"] == chat_id:
+            return False
+            
+    db["tracked_users"].append({"user_id": user_id, "chat_id": chat_id})
+    save_db()
+    return True
+
+def remove_tracked_user(user_id, chat_id):
+    initial_len = len(db["tracked_users"])
+    db["tracked_users"] = [t for t in db["tracked_users"] if not (t["user_id"] == user_id and t["chat_id"] == chat_id)]
+    if len(db["tracked_users"]) < initial_len:
+        save_db()
+        return True
+    return False
+
+def get_all_tracked_users():
+    return [(t["user_id"], t["chat_id"]) for t in db["tracked_users"]]
+
+def save_vv_cache(chat_id, msg_id, saved_msg_id):
+    db.setdefault("vv_cache", {})
+    db["vv_cache"][f"{chat_id}:{msg_id}"] = saved_msg_id
+    save_db()
+
+def get_vv_cache(chat_id, msg_id):
+    return db.get("vv_cache", {}).get(f"{chat_id}:{msg_id}")

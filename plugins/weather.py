@@ -14,17 +14,16 @@ async def get_weather(event):
     await event.edit(f"🔍 **Fetching weather for** `{city}`...")
     
     try:
-        # wttr.in is a free, no-auth API that returns plaintext formatted weather
-        # Format 3 is a short one-liner, format 4 is slightly more detailed
         url = f"https://wttr.in/{city.replace(' ', '+')}?format=3"
+        import urllib.request
+        import asyncio
         
-        connector = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    weather_data = await response.text()
-                    await event.edit(f"🌤 **Weather Report**\n\n`{weather_data.strip()}`")
-                else:
-                    await event.edit(f"❌ **Could not fetch weather for:** `{city}`\n*(API returned status {response.status})*")
+        def fetch_weather():
+            req = urllib.request.Request(url, headers={'User-Agent': 'curl/7.64.1'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return response.read().decode('utf-8')
+                
+        weather_data = await asyncio.to_thread(fetch_weather)
+        await event.edit(f"🌤 **Weather Report**\n\n`{weather_data.strip()}`")
     except Exception as e:
         await event.edit(f"❌ **Error fetching weather:** `{str(e)}`")

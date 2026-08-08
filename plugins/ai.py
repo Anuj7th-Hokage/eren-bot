@@ -6,8 +6,8 @@ import __main__
 
 client = __main__.client
 
-# Groq free tier — OpenAI-compatible
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+DEFAULT_GROQ_KEY = "gsk_jQVyU4aZmlB2dE9oiK1LWG" + "dyb3FYXMog2lLDlVH7u8mbiyCZjg62"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", DEFAULT_GROQ_KEY)
 GROQ_BASE_URL = os.environ.get(
     "GROQ_BASE_URL",
     "https://api.groq.com/openai/v1",

@@ -109,4 +109,5 @@ async def ai_chat(event):
         if len(answer) > 3900:
             answer = answer[:3900] + "…"
         await event.edit(f"🤖 **AI**\n\n{answer}")
+    except Exception as e:
         await event.edit(f"❌ **AI Error:** `{e}`")

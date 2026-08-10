@@ -878,8 +878,9 @@ _GRPVV_PUBLIC  = _re.compile(r"https?://t\.me/([^/]+)/(\d+)")
 _GRPVV_PRIVATE = _re.compile(r"https?://t\.me/c/(\d+)/(\d+)")
 
 
-@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^\\.grpvv(?: |$)(.*)'))
+@client.on(events.NewMessage(outgoing=True, pattern=_re.compile(r'^[.]grpvv(?: |$)(.*)', _re.IGNORECASE | _re.DOTALL)))
 async def grpvv_cmd(event):
+
     """
     .grpvv <telegram_message_link>
 

@@ -250,6 +250,7 @@ async def help_menu(event):
         "`.tracked` - List all currently tracked users.\n"
         "`.gimme [username/id]` - Get profile photo or download replied media.\n"
         "`.vv` - Open a replied view-once photo/video and save it permanently.\n"
+        "`.grpvv <link>` - Open a view-once photo from a group/channel message link.\n"
         "`.ss [count]` - Phone-style screenshot of this Telegram chat.\n"
         "`.ai [prompt]` - Ask Groq AI (or reply to a message).\n"
         "`.weather [city]` - Get current weather details for a location.\n"
@@ -868,3 +869,166 @@ async def translate_cmd(event):
         await event.edit(output)
     except Exception as e:
         await event.edit(f"❌ **Error during translation:** `{str(e)}`")
+
+
+# ─── .grpvv — Open view-once from a group/channel message link ───────────────
+import re as _re
+
+_GRPVV_PUBLIC  = _re.compile(r"https?://t\.me/([^/]+)/(\d+)")
+_GRPVV_PRIVATE = _re.compile(r"https?://t\.me/c/(\d+)/(\d+)")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^\\.grpvv(?: |$)(.*)'))
+async def grpvv_cmd(event):
+    """
+    .grpvv <telegram_message_link>
+
+    Fetches the view-once photo/video from any group or channel message link
+    and saves it permanently — just like .vv but for remote links.
+
+    Supported formats:
+      https://t.me/channelname/123
+      https://t.me/c/1234567890/123
+    """
+    link = (event.pattern_match.group(1) or "").strip()
+
+    if not link:
+        await event.edit(
+            "⚠️ **Usage:** `.grpvv <telegram_message_link>`\n\n"
+            "**Supported formats:**\n"
+            "• `https://t.me/channelname/123`\n"
+            "• `https://t.me/c/1234567890/123`\n\n"
+            "_Bot must be a member of the group/channel._"
+        )
+        return
+
+    await event.edit("🔍 **Fetching message...**")
+
+    try:
+        # Parse public link: t.me/username/msg_id
+        m_pub = _GRPVV_PUBLIC.search(link)
+        # Parse private link: t.me/c/chat_id/msg_id
+        m_prv = _GRPVV_PRIVATE.search(link)
+
+        if m_prv:
+            raw_chat_id = int(m_prv.group(1))
+            msg_id      = int(m_prv.group(2))
+            # Telethon needs the full negative ID for supergroups/channels
+            chat_entity = int(f"-100{raw_chat_id}")
+        elif m_pub:
+            username = m_pub.group(1)
+            msg_id   = int(m_pub.group(2))
+            chat_entity = username
+        else:
+            await event.edit(
+                "❌ **Invalid link format.**\n\n"
+                "Use: `https://t.me/channelname/123` or `https://t.me/c/1234567890/123`"
+            )
+            return
+
+        # Fetch the message
+        target_msg = await client.get_messages(chat_entity, ids=msg_id)
+
+        if not target_msg:
+            await event.edit("❌ **Message not found.** Make sure the bot is in that group/channel.")
+            return
+
+        # Check if it has any media
+        if not target_msg.media:
+            await event.edit(
+                "⚠️ **This message has no media.**\n\n"
+                f"Message text: `{(target_msg.message or '')[:200]}`"
+            )
+            return
+
+        is_vv = _is_view_once(target_msg.media)
+
+        await event.edit(
+            f"{'🔒 **View-once detected!** Opening & saving...' if is_vv else '📥 **Downloading media...**'}"
+        )
+
+        chat_id = target_msg.chat_id
+        temp_path = None
+
+        try:
+            sender = await target_msg.get_sender()
+            from_name = (
+                getattr(sender, "first_name", None)
+                or getattr(sender, "title", None)
+                or "Unknown"
+            )
+
+            send_path = None
+
+            # 1) Already cached on disk (for view-once)
+            if is_vv:
+                local = _vv_local_path(chat_id, msg_id)
+                if local and os.path.exists(local):
+                    send_path = await _save_vv_permanent(chat_id, msg_id, local, from_name)
+
+                # 2) Check Saved Messages cache
+                if not send_path:
+                    cached_id = get_vv_cache(chat_id, msg_id)
+                    if cached_id:
+                        saved_msg = await client.get_messages("me", ids=cached_id)
+                        if saved_msg and saved_msg.media:
+                            temp_path = await client.download_media(
+                                saved_msg, file=os.path.join(VV_DIR, "tmp_")
+                            )
+                            if temp_path:
+                                send_path = await _save_vv_permanent(
+                                    chat_id, msg_id, temp_path, from_name
+                                )
+
+            # 3) Download directly from Telegram
+            if not send_path:
+                if is_vv:
+                    temp_path = await _download_view_media(target_msg)
+                else:
+                    temp_path = await client.download_media(
+                        target_msg, file=os.path.join(VV_DIR, "tmp_")
+                    )
+
+                if temp_path:
+                    if is_vv:
+                        send_path = await _save_vv_permanent(chat_id, msg_id, temp_path, from_name)
+                    else:
+                        send_path = temp_path
+
+            if send_path and os.path.exists(send_path):
+                caption = (
+                    f"🔓 **Opened & saved** (view-once) → check **Saved Messages**\n"
+                    f"📌 From: **{from_name}**"
+                    if is_vv else
+                    f"📥 **Media from group link**\n📌 From: **{from_name}**"
+                )
+                await client.send_file(
+                    event.chat_id,
+                    send_path,
+                    caption=caption,
+                    force_document=False,
+                )
+                await event.delete()
+                return
+
+            await event.edit(
+                "❌ **Could not download the media.**\n\n"
+                "If it's view-once and already opened in Telegram, the server may have deleted it.\n"
+                "Keep the bot running and **don't open it** in Telegram — use `.grpvv` first."
+            )
+
+        except Exception as e:
+            await event.edit(f"❌ **Failed to process media:** `{e}`")
+        finally:
+            # Clean up temp files (not permanent cache files)
+            if temp_path and os.path.exists(temp_path):
+                base = os.path.basename(temp_path)
+                if base.startswith("tmp_") or not base.startswith(f"{chat_id}_{msg_id}"):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+
+    except Exception as e:
+        await event.edit(f"❌ **Error:** `{e}`")
+

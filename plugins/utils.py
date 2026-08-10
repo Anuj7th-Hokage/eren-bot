@@ -943,9 +943,10 @@ async def grpvv_cmd(event):
             return
 
         is_vv = _is_view_once(target_msg.media)
+        media_type = type(target_msg.media).__name__
 
         await event.edit(
-            f"{'🔒 **View-once detected!** Opening & saving...' if is_vv else '📥 **Downloading media...**'}"
+            f"{'🔒 **View-once detected!**' if is_vv else '📥 **Downloading...**'} (`{media_type}`)"
         )
 
         chat_id = target_msg.chat_id
@@ -961,45 +962,53 @@ async def grpvv_cmd(event):
 
             send_path = None
 
-            # 1) Already cached on disk (for view-once)
-            if is_vv:
-                local = _vv_local_path(chat_id, msg_id)
-                if local and os.path.exists(local):
-                    send_path = await _save_vv_permanent(chat_id, msg_id, local, from_name)
+            # 1) Check disk cache (covers both auto-saved VV and previous downloads)
+            local = _vv_local_path(chat_id, msg_id)
+            if local and os.path.exists(local):
+                send_path = await _save_vv_permanent(chat_id, msg_id, local, from_name)
 
-                # 2) Check Saved Messages cache
-                if not send_path:
-                    cached_id = get_vv_cache(chat_id, msg_id)
-                    if cached_id:
-                        saved_msg = await client.get_messages("me", ids=cached_id)
-                        if saved_msg and saved_msg.media:
-                            temp_path = await client.download_media(
-                                saved_msg, file=os.path.join(VV_DIR, "tmp_")
+            # 2) Check Saved Messages cache
+            if not send_path:
+                cached_id = get_vv_cache(chat_id, msg_id)
+                if cached_id:
+                    saved_msg = await client.get_messages("me", ids=cached_id)
+                    if saved_msg and saved_msg.media:
+                        temp_path = await client.download_media(
+                            saved_msg, file=os.path.join(VV_DIR, "tmp_")
+                        )
+                        if temp_path:
+                            send_path = await _save_vv_permanent(
+                                chat_id, msg_id, temp_path, from_name
                             )
-                            if temp_path:
-                                send_path = await _save_vv_permanent(
-                                    chat_id, msg_id, temp_path, from_name
-                                )
 
-            # 3) Download directly from Telegram
+            # 3) Download directly — always try _download_view_media first
+            #    (Telegram strips ttl_seconds on get_messages so is_vv may be False
+            #     even for actual view-once media fetched via link)
             dl_error = None
             if not send_path:
                 try:
-                    if is_vv:
-                        temp_path = await _download_view_media(target_msg)
-                    else:
+                    # Try aggressive view-media download first
+                    temp_path = await _download_view_media(target_msg)
+                    # Fallback: standard download
+                    if not temp_path:
                         temp_path = await client.download_media(
                             target_msg, file=os.path.join(VV_DIR, "tmp_")
+                        )
+                    # Fallback: force as document
+                    if not temp_path:
+                        temp_path = await client.download_media(
+                            target_msg,
+                            file=os.path.join(VV_DIR, "tmp_"),
                         )
                 except Exception as dl_ex:
                     dl_error = str(dl_ex)
                     temp_path = None
 
                 if temp_path:
-                    if is_vv:
-                        send_path = await _save_vv_permanent(chat_id, msg_id, temp_path, from_name)
-                    else:
+                    send_path = await _save_vv_permanent(chat_id, msg_id, temp_path, from_name)
+                    if not send_path:
                         send_path = temp_path
+
 
             if send_path and os.path.exists(send_path):
                 caption = (

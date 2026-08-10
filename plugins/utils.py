@@ -965,13 +965,77 @@ async def grpvv_cmd(event):
             preview_items = [m for m in extended if isinstance(m, MessageExtendedMediaPreview)]
 
             if not real_items:
+                # No unlocked content — extract blurred preview thumbnails
                 await event.edit(
-                    f"💰 **Paid Media — {stars_amount} ⭐ Stars required**\n\n"
-                    f"The account hasn't unlocked this content yet.\n"
-                    f"**Preview items found:** {len(preview_items)}\n\n"
-                    f"_Pay for it in Telegram app first, then retry._"
+                    f"💰 **Paid media ({stars_amount} ⭐) — extracting preview...**"
                 )
+
+                # Helper: convert Telegram's stripped JPEG to full JPEG bytes
+                def _inflate_stripped(data: bytes) -> bytes:
+                    if not data or data[0] != 1:
+                        return data
+                    # Telegram stripped JPEG reconstruction
+                    header = bytearray([
+                        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+                        0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
+                        0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
+                        0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12,
+                        0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20,
+                        0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29,
+                        0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32,
+                        0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff, 0xc0, 0x00, 0x0b, 0x08,
+                        data[1], data[2],   # height
+                        0x00, data[3],      # width
+                        0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05,
+                        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a,
+                        0x0b, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+                    ])
+                    return bytes(header) + data[3:] + b'\xff\xd9'
+
+                sent_previews = 0
+                sender = await target_msg.get_sender()
+                from_name = (
+                    getattr(sender, "first_name", None)
+                    or getattr(sender, "title", None)
+                    or "Unknown"
+                )
+
+                for i, prev in enumerate(preview_items, 1):
+                    thumb = getattr(prev, "thumb", None)
+                    raw   = getattr(thumb, "bytes", None) if thumb else None
+                    if not raw:
+                        continue
+                    try:
+                        jpeg = _inflate_stripped(raw)
+                        buf  = io.BytesIO(jpeg)
+                        buf.name = f"preview_{i}.jpg"
+                        w = getattr(prev, "w", "?")
+                        h = getattr(prev, "h", "?")
+                        await client.send_file(
+                            event.chat_id,
+                            buf,
+                            caption=(
+                                f"🔒 **Paid media preview** ({i}/{len(preview_items)})\n"
+                                f"💰 {stars_amount} ⭐ Stars to unlock full quality\n"
+                                f"📌 From: **{from_name}** | Size hint: {w}×{h}"
+                            ),
+                            force_document=False,
+                        )
+                        sent_previews += 1
+                    except Exception as pe:
+                        _vv_log.warning("preview thumb %d failed: %s", i, pe)
+
+                if sent_previews:
+                    await event.delete()
+                else:
+                    await event.edit(
+                        f"💰 **Paid Media — {stars_amount} ⭐ Stars required**\n\n"
+                        f"No preview thumbnails available either.\n"
+                        f"_Pay in Telegram app first, then use `.grpvv` again._"
+                    )
                 return
+
 
             await event.edit(f"💰 **Paid media unlocked!** Downloading {len(real_items)} file(s)...")
 

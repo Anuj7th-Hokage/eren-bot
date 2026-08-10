@@ -1026,19 +1026,25 @@ async def grpvv_cmd(event):
                 await event.delete()
                 return
 
-            # Show real reason for failure
+            # Show real reason for failure — include media type for debugging
+            has_photo = target_msg.photo is not None
+            has_doc   = target_msg.document is not None
+            ttl_val   = getattr(target_msg.media, 'ttl_seconds', 'N/A')
+            print(f"[GRPVV DEBUG] media={media_type} photo={has_photo} doc={has_doc} ttl={ttl_val} dl_error={dl_error} temp_path={temp_path}")
+
             if dl_error:
                 await event.edit(
                     f"❌ **Download failed.**\n\n"
-                    f"**Error:** `{dl_error}`\n\n"
-                    f"**Is VV:** `{is_vv}` | **Chat:** `{chat_id}` | **Msg:** `{msg_id}`"
+                    f"**Error:** `{dl_error}`\n"
+                    f"**Media:** `{media_type}` | **VV:** `{is_vv}` | **TTL:** `{ttl_val}`\n"
+                    f"**Chat:** `{chat_id}` | **Msg:** `{msg_id}`"
                 )
             else:
                 await event.edit(
-                    "❌ **Could not download the media.**\n\n"
-                    f"**Is VV:** `{is_vv}` | **Chat:** `{chat_id}` | **Msg:** `{msg_id}`\n\n"
-                    "• If view-once: don't open in Telegram first\n"
-                    "• Make sure bot is member of that group/channel"
+                    f"❌ **Could not download the media.**\n\n"
+                    f"**Media:** `{media_type}` | **VV:** `{is_vv}` | **TTL:** `{ttl_val}`\n"
+                    f"**Photo:** `{has_photo}` | **Doc:** `{has_doc}`\n"
+                    f"**Chat:** `{chat_id}` | **Msg:** `{msg_id}`"
                 )
 
         except Exception as e:

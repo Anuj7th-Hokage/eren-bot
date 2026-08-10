@@ -982,13 +982,18 @@ async def grpvv_cmd(event):
                                 )
 
             # 3) Download directly from Telegram
+            dl_error = None
             if not send_path:
-                if is_vv:
-                    temp_path = await _download_view_media(target_msg)
-                else:
-                    temp_path = await client.download_media(
-                        target_msg, file=os.path.join(VV_DIR, "tmp_")
-                    )
+                try:
+                    if is_vv:
+                        temp_path = await _download_view_media(target_msg)
+                    else:
+                        temp_path = await client.download_media(
+                            target_msg, file=os.path.join(VV_DIR, "tmp_")
+                        )
+                except Exception as dl_ex:
+                    dl_error = str(dl_ex)
+                    temp_path = None
 
                 if temp_path:
                     if is_vv:
@@ -1012,11 +1017,20 @@ async def grpvv_cmd(event):
                 await event.delete()
                 return
 
-            await event.edit(
-                "❌ **Could not download the media.**\n\n"
-                "If it's view-once and already opened in Telegram, the server may have deleted it.\n"
-                "Keep the bot running and **don't open it** in Telegram — use `.grpvv` first."
-            )
+            # Show real reason for failure
+            if dl_error:
+                await event.edit(
+                    f"❌ **Download failed.**\n\n"
+                    f"**Error:** `{dl_error}`\n\n"
+                    f"**Is VV:** `{is_vv}` | **Chat:** `{chat_id}` | **Msg:** `{msg_id}`"
+                )
+            else:
+                await event.edit(
+                    "❌ **Could not download the media.**\n\n"
+                    f"**Is VV:** `{is_vv}` | **Chat:** `{chat_id}` | **Msg:** `{msg_id}`\n\n"
+                    "• If view-once: don't open in Telegram first\n"
+                    "• Make sure bot is member of that group/channel"
+                )
 
         except Exception as e:
             await event.edit(f"❌ **Failed to process media:** `{e}`")

@@ -945,9 +945,82 @@ async def grpvv_cmd(event):
         is_vv = _is_view_once(target_msg.media)
         media_type = type(target_msg.media).__name__
 
+        # ── Paid Media (Telegram Stars) special handling ──────────────────────
+        try:
+            from telethon.tl.types import (
+                MessageMediaPaidMedia,
+                MessageExtendedMedia,
+                MessageExtendedMediaPreview,
+            )
+            _has_paid_types = True
+        except ImportError:
+            _has_paid_types = False
+
+        if _has_paid_types and isinstance(target_msg.media, MessageMediaPaidMedia):
+            stars_amount = getattr(target_msg.media, "stars_amount", "?")
+            extended     = getattr(target_msg.media, "extended_media", []) or []
+
+            # Separate unlocked vs preview-only items
+            real_items    = [m for m in extended if isinstance(m, MessageExtendedMedia)]
+            preview_items = [m for m in extended if isinstance(m, MessageExtendedMediaPreview)]
+
+            if not real_items:
+                await event.edit(
+                    f"💰 **Paid Media — {stars_amount} ⭐ Stars required**\n\n"
+                    f"The account hasn't unlocked this content yet.\n"
+                    f"**Preview items found:** {len(preview_items)}\n\n"
+                    f"_Pay for it in Telegram app first, then retry._"
+                )
+                return
+
+            await event.edit(f"💰 **Paid media unlocked!** Downloading {len(real_items)} file(s)...")
+
+            sender = await target_msg.get_sender()
+            from_name = (
+                getattr(sender, "first_name", None)
+                or getattr(sender, "title", None)
+                or "Unknown"
+            )
+
+            sent = 0
+            for i, ext in enumerate(real_items, 1):
+                actual_media = getattr(ext, "media", None)
+                if not actual_media:
+                    continue
+                try:
+                    dl_path = await client.download_media(
+                        actual_media, file=os.path.join(VV_DIR, f"paid_{i}_")
+                    )
+                    if dl_path and os.path.exists(dl_path):
+                        await client.send_file(
+                            event.chat_id,
+                            dl_path,
+                            caption=f"💰 **Paid media ({i}/{len(real_items)})**\n📌 From: **{from_name}**",
+                            force_document=False,
+                        )
+                        sent += 1
+                        try:
+                            os.remove(dl_path)
+                        except Exception:
+                            pass
+                except Exception as pe:
+                    _vv_log.warning("paid media item %d failed: %s", i, pe)
+
+            if sent:
+                await event.delete()
+            else:
+                await event.edit(
+                    f"❌ **Paid media download failed.**\n"
+                    f"Unlocked items: {len(real_items)} but none could be saved.\n"
+                    f"Stars: {stars_amount} ⭐"
+                )
+            return
+        # ── End Paid Media handling ───────────────────────────────────────────
+
         await event.edit(
             f"{'🔒 **View-once detected!**' if is_vv else '📥 **Downloading...**'} (`{media_type}`)"
         )
+
 
         chat_id = target_msg.chat_id
         temp_path = None

@@ -7,7 +7,6 @@ import __main__
 client = __main__.client
 
 DEFAULT_GROQ_KEY = "gsk_u656HysQ5vimpHtzMPY" + "bWGdyb3FYEbgkBFKVWeiU13es2QUv1YDc"
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", DEFAULT_GROQ_KEY)
 GROQ_BASE_URL = os.environ.get(
     "GROQ_BASE_URL",
     "https://api.groq.com/openai/v1",
@@ -41,9 +40,9 @@ def _extract_reply(data):
     return None
 
 
-async def _ask_ai(prompt: str) -> str:
+async def _ask_ai_with_key(prompt: str, api_key: str) -> str:
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -83,6 +82,35 @@ async def _ask_ai_keyless(prompt: str) -> str:
                     return text.strip()
             raise RuntimeError(f"Pollinations API error status {resp.status}")
 
+
+async def _ask_ai(prompt: str) -> str:
+    keys_to_try = []
+    
+    # Check default key first, then environment variable override if different
+    if DEFAULT_GROQ_KEY:
+        keys_to_try.append(DEFAULT_GROQ_KEY)
+    
+    env_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if env_key and env_key not in keys_to_try:
+        keys_to_try.append(env_key)
+
+    last_error = None
+    for key in keys_to_try:
+        try:
+            return await _ask_ai_with_key(prompt, key)
+        except Exception as e:
+            last_error = e
+            continue
+
+    # Keyless fallback if all Groq keys fail
+    try:
+        return await _ask_ai_keyless(prompt)
+    except Exception:
+        pass
+
+    raise last_error or RuntimeError("Failed to query AI service.")
+
+
 @client.on(events.NewMessage(outgoing=True, pattern=r'(?i)^\.ai(?: |$)(.*)'))
 async def ai_chat(event):
     prompt = (event.pattern_match.group(1) or "").strip()
@@ -101,11 +129,7 @@ async def ai_chat(event):
     await event.edit("🤖 **Thinking...**")
 
     try:
-        if GROQ_API_KEY:
-            answer = await _ask_ai(prompt)
-        else:
-            answer = await _ask_ai_keyless(prompt)
-
+        answer = await _ask_ai(prompt)
         if len(answer) > 3900:
             answer = answer[:3900] + "…"
         await event.edit(f"🤖 **AI**\n\n{answer}")

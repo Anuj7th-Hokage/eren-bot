@@ -6,7 +6,7 @@ import __main__
 
 client = __main__.client
 
-DEFAULT_GROQ_KEY = "gsk_T0Y0O64bL26WFK0" + "70p4WGdyb3FYgPgdv8FXqAiM5N1e6X4s1dr2"
+DEFAULT_GROQ_KEY = "gsk_u656HysQ5vimpHtzMPY" + "bWGdyb3FYEbgkBFKVWeiU13es2QUv1YDc"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", DEFAULT_GROQ_KEY)
 GROQ_BASE_URL = os.environ.get(
     "GROQ_BASE_URL",
